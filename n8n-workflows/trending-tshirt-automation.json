@@ -1,0 +1,180 @@
+{
+  "name": "Trending T-Shirt Automation + Claude MCP",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c796567e-734b-4630-99e7-631622cbe8a3",
+      "name": "When clicking 'Execute workflow'",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [-336, 80],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "url": "https://oauth.reddit.com/r/all/top",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "t", "value": "day"},
+            {"name": "limit", "value": "10"}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "User-Agent", "value": "test/0.1 (by /u/YOUR_REDDIT_USERNAME)"}
+          ]
+        },
+        "options": {
+          "response": {"response": {"responseFormat": "json"}},
+          "timeout": 15000
+        }
+      },
+      "id": "04c91ed5-02d8-48cf-8f8d-d46b9ea74567",
+      "name": "Get Daily Top Reddit Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [-112, 80],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nconst children = $json.data?.children || [];\nfor (const p of children) {\n  const d = p.data || {};\n  const title = (d.title || '').trim();\n  if (!title) continue;\n  out.push({\n    topic: title.slice(0, 100),\n    reddit_upvotes: d.ups ?? 0,\n    comments: d.num_comments ?? 0,\n    subreddit: d.subreddit || '',\n    permalink: 'https://reddit.com' + (d.permalink || '')\n  });\n}\nreturn out.map(x => ({ json: x }));"
+      },
+      "id": "8b932456-abf6-4bc6-bdcd-98f02c584b3a",
+      "name": "Parse Top Reddit Post Data",
+      "type": "n8n-nodes-base.code",
+      "position": [112, 80],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Topic: {{$json.topic}}\nContext: subreddit {{$json.subreddit}}, upvotes {{$json.reddit_upvotes}}, comments {{$json.comments}}\nEvaluate for Amazon Merch on Demand per the system policy and return the JSON object only.\n\nAmazon Merch on Demand Content Policy — Review Rules:\n\n1. Illegal or Infringing Content\n   - No use of third-party trademarks, logos, slogans, brand names, copyrighted characters, or media.\n   - No depiction of copyrighted characters, album art, screenshots, or derivative works without proper license.\n   - Avoid references to celebrity likenesses or endorsement implications without permission.\n\n2. Offensive or Controversial Content\n   - Avoid discriminatory, hateful, or harassing content towards protected groups or individuals.\n   - No explicit, sexual, violent, or graphic content.\n   - No glorification, praise, or endorsement of violence, extremist groups, or illegal acts.\n\n3. Other Not Allowed Content\n   - No political campaigning or election-related content.\n   - No solicitation or manipulation of customer reviews.\n   - No content that violates user trust or platform integrity.\n\nDefault to REJECT if unsure or borderline.\n\nSTRICT OUTPUT:\n- Return ONLY a single JSON object INSTANCE.\n- Must include the original data AND the decision.\n- Must match this schema exactly:\n  {\n    \"topic\": \"{{$json.topic}}\",\n    \"reddit_upvotes\": {{$json.reddit_upvotes}},\n    \"comments\": {{$json.comments}},\n    \"subreddit\": \"{{$json.subreddit}}\",\n    \"permalink\": \"{{$json.permalink}}\",\n    \"decision\": \"ALLOW\" | \"REJECT\",\n    \"reasons\": [\"...\"],\n    \"flagWords\": [\"...\"]\n  }\n- Do NOT return a JSON schema.\n- Do NOT wrap inside \"output\", \"response\", \"result\", or arrays.\n- Do NOT include prose, markdown, or code fences.\n- Output must be valid JSON.\n\nExample valid instance:\n{\"topic\":\"Grandma with the drip\",\"reddit_upvotes\":66972,\"comments\":252,\"subreddit\":\"MadeMeSmile\",\"permalink\":\"https://reddit.com/r/MadeMeSmile/comments/1mr5rnz/grandma_with_the_drip/\",\"decision\":\"ALLOW\",\"reasons\":[\"Content is harmless and family-friendly\"],\"flagWords\":[]}",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "id": "0e6d740d-d47a-4661-92db-21f6f5b8c939",
+      "name": "Amazon TOS Review Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [352, 80],
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process all input items and pass them through\nconst results = [];\n\n// Handle all input items\nfor (const item of $input.all()) {\n  if (item.json && item.json.output) {\n    // Extract the output data from each item\n    results.push({ json: item.json.output });\n  }\n}\n\nconsole.log(`Merge Reddit Data: Processing ${$input.all().length} items, outputting ${results.length} items`);\n\nreturn results;"
+      },
+      "id": "merge-reddit-data",
+      "name": "Merge Reddit Data",
+      "type": "n8n-nodes-base.code",
+      "position": [608, 80],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o",
+          "cachedResultName": "gpt-4o"
+        },
+        "options": {"responseFormat": "json_object"}
+      },
+      "id": "6ae82da3-7ff2-4fb5-b097-f6029372fcdd",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "position": [240, 384],
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"topic\": { \"type\": \"string\" },\n    \"reddit_upvotes\": { \"type\": \"number\" },\n    \"comments\": { \"type\": \"number\" },\n    \"subreddit\": { \"type\": \"string\" },\n    \"permalink\": { \"type\": \"string\" },\n    \"decision\": { \"type\": \"string\", \"enum\": [\"ALLOW\", \"REJECT\"] },\n    \"reasons\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } },\n    \"flagWords\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } }\n  },\n  \"required\": [\"topic\", \"reddit_upvotes\", \"comments\", \"subreddit\", \"permalink\", \"decision\", \"reasons\", \"flagWords\"],\n  \"additionalProperties\": false\n}",
+        "autoFix": true
+      },
+      "id": "dc56b805-a38b-4a3c-b7d2-282e1e4379db",
+      "name": "Structured Output Parser1",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "position": [496, 288],
+      "typeVersion": 1.3
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter all input items for ALLOW decisions\nconst allowItems = [];\n\n// Process all input items\nfor (const item of $input.all()) {\n  if (item.json && item.json.decision === 'ALLOW') {\n    allowItems.push({ json: item.json });\n  }\n}\n\nconsole.log(`Found ${allowItems.length} ALLOW items out of ${$input.all().length} total items`);\n\n// Log each ALLOW item for debugging\nallowItems.forEach((item, index) => {\n  console.log(`ALLOW ${index + 1}: ${item.json.topic}`);\n});\n\nreturn allowItems;"
+      },
+      "id": "filter-allow-items",
+      "name": "Filter ALLOW Items",
+      "type": "n8n-nodes-base.code",
+      "position": [864, 80],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a merch copy/design assistant. Create punchy, original t-shirt concepts that avoid any IP, celebrity names, logos, or copyrighted phrases.\n\nINPUT\nTopic: {{$json.topic}}\nContext: subreddit {{$json.subreddit}}, upvotes {{$json.reddit_upvotes}}, comments {{$json.comments}}\nPermalink: {{$json.permalink}}\n\nTASK\n1) Write 5 on-brand SLOGANS that are short (≤ 6 words), high-contrast/printable, and NOT infringing or political campaigning. No profanity, no brand names, no real people.\n2) For each slogan, propose a DESIGN_BRIEF with:\n   - style_tags (3–5: e.g., \"bold condensed\", \"retro sunburst\", \"line-art icon\")\n   - color_palette (2–4 short names)\n   - composition (text-only | text+icon | icon-dominant)\n   - background (\"transparent\" recommended)\n   - notes (max 1 sentence, optional)\n\nSTRICT OUTPUT — return ONLY a JSON object instance matching the schema. No prose.",
+        "options": {}
+      },
+      "id": "09653faf-f0b1-436d-84bd-d531ee8ced6b",
+      "name": "T-Shirt Design Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [1104, 80],
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "id": "fb782ff1-4553-4fb7-bf65-108126a4d09b",
+      "name": "OpenAI Chat Model1",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "position": [1040, 256],
+      "typeVersion": 1.2
+    }
+  ],
+  "connections": {
+    "Merge Reddit Data": {
+      "main": [[{"node": "Filter ALLOW Items", "type": "main", "index": 0}]]
+    },
+    "OpenAI Chat Model": {
+      "main": [],
+      "ai_languageModel": [[
+        {"node": "Amazon TOS Review Agent", "type": "ai_languageModel", "index": 0},
+        {"node": "Structured Output Parser1", "type": "ai_languageModel", "index": 0}
+      ]]
+    },
+    "Filter ALLOW Items": {
+      "main": [[{"node": "T-Shirt Design Agent", "type": "main", "index": 0}]]
+    },
+    "OpenAI Chat Model1": {
+      "main": [],
+      "ai_languageModel": [[{"node": "T-Shirt Design Agent", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Amazon TOS Review Agent": {
+      "main": [[{"node": "Merge Reddit Data", "type": "main", "index": 0}]]
+    },
+    "Structured Output Parser1": {
+      "main": [],
+      "ai_outputParser": [[{"node": "Amazon TOS Review Agent", "type": "ai_outputParser", "index": 0}]]
+    },
+    "Get Daily Top Reddit Posts": {
+      "main": [[{"node": "Parse Top Reddit Post Data", "type": "main", "index": 0}]]
+    },
+    "Parse Top Reddit Post Data": {
+      "main": [[{"node": "Amazon TOS Review Agent", "type": "main", "index": 0}]]
+    },
+    "When clicking 'Execute workflow'": {
+      "main": [[{"node": "Get Daily Top Reddit Posts", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {"executionOrder": "v1"},
+  "staticData": null,
+  "meta": {"templateCredsSetupCompleted": true},
+  "pinData": {},
+  "triggerCount": 0
+}
